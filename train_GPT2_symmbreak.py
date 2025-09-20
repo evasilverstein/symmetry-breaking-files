@@ -208,7 +208,7 @@ class DisorderedCausalSelfAttention(nn.Module):
             # add disorder biases (broadcast over batch/time): (1, 1 nh, d)
             q = q + self.bQ.view(1, nh, 1, d).transpose(1,2)
             k = k + self.bK.view(1, nh, 1, d).transpose(1,2)
-            y = flash_attn_func(q, k, v, casual=True)
+            y = flash_attn_func(q, k, v, causal=True)
             y = y.contiguous().view(B, T, C).to(x.dtype) # (B, T, C)
 
 
