@@ -1,12 +1,5 @@
 ### ES: now trying 124M model, but changing some things like batch and context length to save memory
 
-
-
-import pip
-
-#!pip install matplotlib
-
-
 from dataclasses import dataclass
 import torch
 import torch.nn as nn
@@ -18,7 +11,12 @@ import os
 import time 
 import wandb
 import time
+import numpy as np
 from ECD_q1_scaled import ECD_q1_scaled
+from torch.optim.optimizer import Optimizer, required
+
+if torch.cuda.is_available():
+    from flash_attn import flash_attn_func #this additionally requires the installation of flash attention: pip install flash-attn --no-build-isolation
 
 import wandb
 
@@ -83,25 +81,13 @@ else:
         n_embd:         int = 8         #4*n_head , number of embedding dimension
 
 
-import math
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
-from torch.optim.optimizer import Optimizer, required
 
-import math
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
 
 ### Now putting in actual rotation-breaking element, also with causality
 
 ###This version is explicit breaking, now with disorder-inspired full rotation breaking via the biases
 
-import math
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
 
 class DisorderedCausalSelfAttention(nn.Module):
     """
@@ -113,7 +99,7 @@ class DisorderedCausalSelfAttention(nn.Module):
     def __init__(self, config,
                  mean_Q=None, mean_K=None,     # scalar or (d,)
                  std_Q=None,  std_K=None,      # scalar or (d,)
-                 mode="per_batch"):
+                 mode="per_batch", impl='eager'):
         super().__init__()
         assert config.n_embd % config.n_head == 0
         self.n_head = config.n_head
@@ -124,6 +110,8 @@ class DisorderedCausalSelfAttention(nn.Module):
         self.c_attn = nn.Linear(C, 3 * C)
         self.c_proj = nn.Linear(C, C)
         self.c_proj.NANOGPT_SCALE_INIT = 1
+
+        self.impl = impl
 
         # helper: coerce scalars/arrays to 1-D vectors (d,)
         def to_vec(x, default):
@@ -154,12 +142,14 @@ class DisorderedCausalSelfAttention(nn.Module):
         self.register_buffer("bK", torch.zeros(self.n_head, self.d))
         self.mode = mode  # "per_batch" or "off" (no re-sampling)
 
-        # precompute a maximal causal mask
-        mask = torch.tril(torch.ones(config.context_length, config.context_length))
-        self.register_buffer(
-            "causal_mask",
-            mask.view(1, 1, config.context_length, config.context_length)
-        )
+        if self.impl=='eager':
+            # precompute a maximal causal mask
+            mask = torch.tril(torch.ones(config.context_length, config.context_length))
+            
+            self.register_buffer(
+                "causal_mask",
+                mask.view(1, 1, config.context_length, config.context_length)
+            )
 
     @torch.no_grad()
     def _resample_biases(self, device):
@@ -190,22 +180,42 @@ class DisorderedCausalSelfAttention(nn.Module):
         qkv = self.c_attn(x)                       # (B, T, 3C)
         q, k, v = qkv.split(C, dim=2)              # each (B, T, C)
 
-        # reshape to heads: (B, nh, T, d)
-        q = q.view(B, T, nh, d).transpose(1, 2)
-        k = k.view(B, T, nh, d).transpose(1, 2)
-        v = v.view(B, T, nh, d).transpose(1, 2)
+        
 
-        # add disorder biases (broadcast over batch/time): (1, nh, 1, d)
-        q = q + self.bQ.view(1, nh, 1, d)
-        k = k + self.bK.view(1, nh, 1, d)
+        if self.impl=='eager':
+            # reshape to heads: (B, nh, T, d)
+            q = q.view(B, T, nh, d).transpose(1, 2)
+            k = k.view(B, T, nh, d).transpose(1, 2)
+            v = v.view(B, T, nh, d).transpose(1, 2)
+            
 
-        # causal attention
-        scores = (q @ k.transpose(-2, -1)) / math.sqrt(d)  # (B, nh, T, T)
-        scores = scores.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf'))
-        att = F.softmax(scores, dim=-1)
 
-        y = att @ v                                      # (B, nh, T, d)
-        y = y.transpose(1, 2).contiguous().view(B, T, C) # (B, T, C)
+            # add disorder biases (broadcast over batch/time): (1, nh, 1, d)
+            q = q + self.bQ.view(1, nh, 1, d)
+            k = k + self.bK.view(1, nh, 1, d)
+
+            # causal attention
+            scores = (q @ k.transpose(-2, -1)) / math.sqrt(d)  # (B, nh, T, T)
+            scores = scores.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf'))
+            att = F.softmax(scores, dim=-1)
+
+            y = att @ v                                      # (B, nh, T, d)
+            y = y.transpose(1, 2).contiguous().view(B, T, C) # (B, T, C)
+
+        else:
+            q, k, v = tuple(map(lambda t: t.to(torch.bfloat16),(q, k, v)))
+            # reshape to heads: (B, T, nh, d) for flash attn
+            q = q.view(B, T, nh, d)
+            k = k.view(B, T, nh, d)
+            v = v.view(B, T, nh, d)
+            # add disorder biases (broadcast over batch/time): (1, 1 nh, d)
+            q = q + self.bQ.view(1, nh, 1, d).transpose(1,2)
+            k = k + self.bK.view(1, nh, 1, d).transpose(1,2)
+            y = flash_attn_func(q, k, v, casual=True)
+            y = y.contiguous().view(B, T, C).to(x.dtype) # (B, T, C)
+
+
+
         return self.c_proj(y)
 
 
@@ -579,9 +589,7 @@ class MLP(nn.Module):
         x = self.c_proj(x)
         return x
 
-import torch
-import torch.nn as nn
-import torch.nn.functional as F
+
 
 # -------------------------------------------------------------------------
 # Option A: Custom channel‑wise LeakyReLU for 1D features
@@ -682,7 +690,7 @@ class Block(nn.Module):
         super().__init__()
         #self.sa = CausalSelfAttention(config)           ##This is the multi head attention
         #self.sa = RotationallyAsymmetricCausalSelfAttention(config)  ## asymmetrized (now rotationally) attn
-        self.sa = DisorderedCausalSelfAttention(config)  ## asymmetrized (now fully via disorder) rotationally attn
+        self.sa = DisorderedCausalSelfAttention(config, impl='flash')  ## asymmetrized (now fully via disorder) rotationally attn
         #self.sa = AsymmetricCausalSelfAttention(config)            
         #self.mlp = MLP(config)
         #self.mlp = AsymmetricMLP(config)
@@ -869,7 +877,7 @@ if (corpus == 'sherlock') or (corpus == 'shakespeare'):
 
 elif corpus == 'fineweb':
 
-    import numpy as np
+    
 
     def load_tokens(filename):
         npt = np.fromfile(filename, dtype=np.uint16)
@@ -1015,7 +1023,10 @@ if train:
     model.train()
     train_losses, val_losses, train_steps, val_steps = [], [], [], [] 
     for step in range(max_step):
-        t0 = time.time()
+        #t0 = time.time()
+        e1 = torch.cuda.Event(enable_timing=True)
+        e2 = torch.cuda.Event(enable_timing=True)
+        e1.record()
         x,y = train_loader.next_batch()
         x,y = x.to(device), y.to(device)
         optimizer.zero_grad()
@@ -1034,15 +1045,17 @@ if train:
             return loss            
         optimizer.step(closure)
 
-        torch.cuda.synchronize()
+        
         with torch.no_grad():
             train_steps.append(step)
             train_losses.append(loss.item())
             wandb.log({"train/loss": loss.item(), "step": step})
             if step%10 == 0:
-                t1 = time.time()
-                dt = (t1-t0)*1000 #time difference in milliseconds
-                tokens_per_sec = (train_loader.B*train_loader.T)/(t1-t0)    
+                #t1 = time.time()
+                e2.record()
+                torch.cuda.synchronize()
+                dt = (e1.elapsed_time(e2)) #time difference in milliseconds
+                tokens_per_sec = (train_loader.B*train_loader.T)/ dt
                 print(f"Step: {step} , norm: {norm:.4}, Loss: {loss.item():.4} , dt: {dt:.2f} , tok/sec: {tokens_per_sec:.2f}")
                 with open(log_file, "a") as f:
                     f.write(f"{step} val {loss.item():.4}\n")
@@ -1171,8 +1184,6 @@ layers = model.transformer.h   # this is an nn.ModuleList of your Blocks
 #     print(f"Layer {i:2d}:  head_temp  std = {temp.std().item():.4f},  head_scale std = {scale.std().item():.4f}")
 
 
-import numpy as np
-
 # def analyze_param(param, name):
 #     """
 #     param: a torch.Tensor of shape (n_head, head_dim)
@@ -1194,35 +1205,32 @@ import numpy as np
 #     print(f"  {name:20s} head‐means → mean {hm_mu:.4f}, std {hm_std:.4f}\n")
 
 # --- after training completes ---
-print("=== Rotation‐breaking stats per layer ===")
-for i, blk in enumerate(model.transformer.h):
-    print(f"Layer {i}:")
-    analyze_param(blk.sa.q_scale, "q_scale")
-    analyze_param(blk.sa.q_bias,  "q_bias")
-    analyze_param(blk.sa.k_scale, "k_scale")
-    analyze_param(blk.sa.k_bias,  "k_bias")
+# print("=== Rotation‐breaking stats per layer ===")
+# for i, blk in enumerate(model.transformer.h):
+#     print(f"Layer {i}:")
+#     analyze_param(blk.sa.q_scale, "q_scale")
+#     analyze_param(blk.sa.q_bias,  "q_bias")
+#     analyze_param(blk.sa.k_scale, "k_scale")
+#     analyze_param(blk.sa.k_bias,  "k_bias")
 
-print("=== Rotation-breaking / disorder stats per layer ===")
-for i, blk in enumerate(model.transformer.h):
-    sa = blk.sa
-    if hasattr(sa, "q_scale"):  # your fixed-asymmetry variant
-        def analyze_param(p, name):
-            arr = p.detach().float().cpu().view(-1).numpy()
-            print(f"  {name:12s} mean {arr.mean():.4f}  std {arr.std():.4f}  rng {(arr.max()-arr.min()):.4f}")
-        print(f"Layer {i}:")
-        analyze_param(sa.q_scale, "q_scale")
-        analyze_param(sa.q_bias,  "q_bias")
-        analyze_param(sa.k_scale, "k_scale")
-        analyze_param(sa.k_bias,  "k_bias")
-    elif hasattr(sa, "bQ"):     # disordered attention (this class)
-        print(f"Layer {i}: bQ mean {sa.bQ.float().mean().item():.4f} std {sa.bQ.float().std().item():.4f} | "
-              f"bK mean {sa.bK.float().mean().item():.4f} std {sa.bK.float().std().item():.4f}")
-
-
+# print("=== Rotation-breaking / disorder stats per layer ===")
+# for i, blk in enumerate(model.transformer.h):
+#     sa = blk.sa
+#     if hasattr(sa, "q_scale"):  # your fixed-asymmetry variant
+#         def analyze_param(p, name):
+#             arr = p.detach().float().cpu().view(-1).numpy()
+#             print(f"  {name:12s} mean {arr.mean():.4f}  std {arr.std():.4f}  rng {(arr.max()-arr.min()):.4f}")
+#         print(f"Layer {i}:")
+#         analyze_param(sa.q_scale, "q_scale")
+#         analyze_param(sa.q_bias,  "q_bias")
+#         analyze_param(sa.k_scale, "k_scale")
+#         analyze_param(sa.k_bias,  "k_bias")
+#     elif hasattr(sa, "bQ"):     # disordered attention (this class)
+#         print(f"Layer {i}: bQ mean {sa.bQ.float().mean().item():.4f} std {sa.bQ.float().std().item():.4f} | "
+#               f"bK mean {sa.bK.float().mean().item():.4f} std {sa.bK.float().std().item():.4f}")
 
 
-if terminate_pod_at_the_end: os.system('runpodctl remove pod $RUNPOD_POD_ID')
-#import sys; sys.exit(0)
 
-#runpodctl remove pod $RUNPOD_POD_ID
+
+
     

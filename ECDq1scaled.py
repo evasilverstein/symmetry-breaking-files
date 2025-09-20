@@ -19,7 +19,10 @@ class ECD_q1_scaled(Optimizer):
         super(ECD_q1_scaled, self).__init__(params, defaults)
         # d_params = len(params)
         #self.d_params = len(self.param_groups[0]["params"][0])
+
+    
     @torch.no_grad()
+    @torch.compile()
     def step(self, closure):
 
         loss = None
