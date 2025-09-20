@@ -187,7 +187,6 @@ class DisorderedCausalSelfAttention(nn.Module):
             q = q.view(B, T, nh, d).transpose(1, 2)
             k = k.view(B, T, nh, d).transpose(1, 2)
             v = v.view(B, T, nh, d).transpose(1, 2)
-            
 
 
             # add disorder biases (broadcast over batch/time): (1, nh, 1, d)
@@ -203,11 +202,9 @@ class DisorderedCausalSelfAttention(nn.Module):
             y = y.transpose(1, 2).contiguous().view(B, T, C) # (B, T, C)
 
         else:
-            q, k, v = tuple(map(lambda t: t.to(torch.bfloat16),(q, k, v)))
-            # reshape to heads: (B, T, nh, d) for flash attn
-            q = q.view(B, T, nh, d)
-            k = k.view(B, T, nh, d)
-            v = v.view(B, T, nh, d)
+            q, k, v = tuple(map(lambda t: t.view(B, T, nh, d).to(torch.bfloat16),
+                                (q, k, v)))
+            
             # add disorder biases (broadcast over batch/time): (1, 1 nh, d)
             q = q + self.bQ.view(1, nh, 1, d).transpose(1,2)
             k = k + self.bK.view(1, nh, 1, d).transpose(1,2)
@@ -223,8 +220,10 @@ class RotationallyAsymmetricCausalSelfAttention(nn.Module):
     def __init__(
         self,
         config,
+        impl='eager',
         asym_mean: float = 1.0,
         asym_std:  float = 0.7 #0.5, #0.3,  ### 0.3 did better than SSB case
+        
     ):
         """
         config:        your GPTConfig
@@ -242,6 +241,7 @@ class RotationallyAsymmetricCausalSelfAttention(nn.Module):
         self.c_attn = nn.Linear(C, 3*C)
         self.c_proj = nn.Linear(C, C)
         self.c_proj.NANOGPT_SCALE_INIT = 1
+        self.impl = impl 
 
         # draw fixed, non-trainable asymmetry tensors
         q_s = torch.randn(self.n_head, self.head_dim) * asym_std + asym_mean
@@ -255,12 +255,13 @@ class RotationallyAsymmetricCausalSelfAttention(nn.Module):
         self.register_buffer("k_scale", k_s)
         self.register_buffer("k_bias",  k_b)
 
-        # precompute max causal mask
-        mask = torch.tril(torch.ones(config.context_length, config.context_length))
-        self.register_buffer(
-            "causal_mask",
-            mask.view(1, 1, config.context_length, config.context_length)
-        )
+        if self.impl=='eager':
+            # precompute max causal mask
+            mask = torch.tril(torch.ones(config.context_length, config.context_length))
+            self.register_buffer(
+                "causal_mask",
+                mask.view(1, 1, config.context_length, config.context_length)
+            )
 
     def forward(self, x):
         B, T, C = x.size()
@@ -270,103 +271,55 @@ class RotationallyAsymmetricCausalSelfAttention(nn.Module):
         qkv = self.c_attn(x)                # (B, T, 3C)
         q, k, v = qkv.split(C, dim=2)       # each (B, T, C)
 
-        # 2) to (B, nh, T, hd)
-        q = q.view(B, T, nh, hd).transpose(1,2)
-        k = k.view(B, T, nh, hd).transpose(1,2)
-        v = v.view(B, T, nh, hd).transpose(1,2)
+        if self.impl=='eager':
 
-        # 3) apply fixed asymmetry
-        qs = self.q_scale.view(1, nh, 1, hd)
-        qb = self.q_bias .view(1, nh, 1, hd)
-        ks = self.k_scale.view(1, nh, 1, hd)
-        kb = self.k_bias .view(1, nh, 1, hd)
-        q  = q * qs + qb
-        k  = k * ks + kb
+            # 2) to (B, nh, T, hd)
+            q = q.view(B, T, nh, hd).transpose(1,2)
+            k = k.view(B, T, nh, hd).transpose(1,2)
+            v = v.view(B, T, nh, hd).transpose(1,2)
 
-        # 4) causal scaled-dot-product
-        scores = (q @ k.transpose(-2,-1)) / math.sqrt(hd)  # (B, nh, T, T)
-        mask   = self.causal_mask[:, :, :T, :T]
-        scores = scores.masked_fill(mask == 0, float("-inf"))
+            # 3) apply fixed asymmetry
+            qs = self.q_scale.view(1, nh, 1, hd)
+            qb = self.q_bias .view(1, nh, 1, hd)
+            ks = self.k_scale.view(1, nh, 1, hd)
+            kb = self.k_bias .view(1, nh, 1, hd)
+            q  = q * qs + qb
+            k  = k * ks + kb
 
-        # 5) softmax & attend
-        att = F.softmax(scores, dim=-1)
-        y   = att @ v                                       # (B, nh, T, hd)
+            # 4) causal scaled-dot-product
+            scores = (q @ k.transpose(-2,-1)) / math.sqrt(hd)  # (B, nh, T, T)
+            mask   = self.causal_mask[:, :, :T, :T]
+            scores = scores.masked_fill(mask == 0, float("-inf"))
 
-        # 6) reassemble & project out
-        y = y.transpose(1,2).reshape(B, T, C)
+            # 5) softmax & attend
+            att = F.softmax(scores, dim=-1)
+            y   = att @ v                                       # (B, nh, T, hd)
+
+            # 6) reassemble & project out
+            y = y.transpose(1,2).reshape(B, T, C)
+        else:
+            q, k, v = tuple(
+                map(lambda t: t.view(B, T, nh, hd).to(torch.bfloat16), 
+                    (q, k, v)))
+            
+            qs, qb, ks, kb = tuple(
+                map(lambda t: t.view(1, nh, 1, hd).transpose(1,2).to(q.dtype), 
+                    (self.q_scale, self.q_bias, self.k_scale, self.k_bias))
+            )
+            q  = q * qs + qb
+            k  = k * ks + kb
+
+            y = flash_attn_func(q, k, v, causal=True)
+            y = y.view(B,T,C).contiguous()
+            
         return self.c_proj(y)
-
-###  The following was the old learned (trained) asymmetry, while the above is explicit breaking instead
-# class RotationallyAsymmetricCausalSelfAttention(nn.Module):
-#     def __init__(self, config):
-#         super().__init__()
-#         assert config.n_embd % config.n_head == 0
-
-#         self.n_head  = config.n_head
-#         self.head_dim= config.n_embd // config.n_head
-#         C = config.n_embd
-
-#         # fused QKV projection
-#         self.c_attn = nn.Linear(C, 3*C)
-#         # output projection
-#         self.c_proj = nn.Linear(C, C)
-#         self.c_proj.NANOGPT_SCALE_INIT = 1
-
-#         # per-head Q/K scale & bias (rotation‐breaking)
-#         self.q_scale = nn.Parameter(torch.ones(self.n_head, self.head_dim))
-#         self.q_bias  = nn.Parameter(torch.zeros(self.n_head, self.head_dim))
-#         self.k_scale = nn.Parameter(torch.ones(self.n_head, self.head_dim))
-#         self.k_bias  = nn.Parameter(torch.zeros(self.n_head, self.head_dim))
-
-#         # precompute a maximal causal mask (context_length × context_length)
-#         mask = torch.tril(torch.ones(config.context_length, config.context_length))
-#         self.register_buffer('causal_mask',
-#             mask.view(1, 1, config.context_length, config.context_length)
-#         )
-
-#     def forward(self, x):
-#         B, T, C = x.size()   # batch, seq_len, emb_dim
-#         nh, hd = self.n_head, self.head_dim
-
-#         # 1) project and split QKV
-#         qkv = self.c_attn(x)                   # (B, T, 3C)
-#         q, k, v = qkv.split(C, dim=2)          # each (B, T, C)
-
-#         # 2) reshape into heads: (B, nh, T, hd)
-#         q = q.view(B, T, nh, hd).transpose(1,2)
-#         k = k.view(B, T, nh, hd).transpose(1,2)
-#         v = v.view(B, T, nh, hd).transpose(1,2)
-
-#         # 3) rotation‐breaking on Q and K
-#         #    broadcast scales & biases over batch & seq
-#         qs = self.q_scale.view(1, nh, 1, hd)
-#         qb = self.q_bias .view(1, nh, 1, hd)
-#         ks = self.k_scale.view(1, nh, 1, hd)
-#         kb = self.k_bias .view(1, nh, 1, hd)
-
-#         q = q * qs + qb
-#         k = k * ks + kb
-
-#         # 4) compute causal attention scores
-#         scores = (q @ k.transpose(-2,-1)) / math.sqrt(hd)  # (B, nh, T, T)
-#         mask = self.causal_mask[:,:,:T,:T]                  # (1,1,T,T)
-#         scores = scores.masked_fill(mask == 0, float('-inf'))
-
-#         # 5) softmax & attend
-#         att   = F.softmax(scores, dim=-1)
-#         y     = att @ v                                      # (B, nh, T, hd)
-
-#         # 6) reassemble & project out
-#         y     = y.transpose(1,2).contiguous().view(B, T, C)
-#         return self.c_proj(y)
-
 
 
 # -------------------------------------------------------------------------
 # 2) Replace CausalSelfAttention with this asymmetric version
 # -------------------------------------------------------------------------
 class AsymmetricCausalSelfAttention(nn.Module):
-    def __init__(self, config):
+    def __init__(self, config, impl='eager'):
         super().__init__()
         assert config.n_embd % config.n_head == 0
 
@@ -379,6 +332,7 @@ class AsymmetricCausalSelfAttention(nn.Module):
         # output projection
         self.c_proj = nn.Linear(C, C)
         self.c_proj.NANOGPT_SCALE_INIT = 1
+        self.impl = impl
 
         # ——— new asymmetry parameters ———
         # per-head softmax temperature (start at 1/√d)
@@ -386,6 +340,16 @@ class AsymmetricCausalSelfAttention(nn.Module):
         self.head_temp  = nn.Parameter(torch.ones(self.n_head) * init_temp)
         # per-head output scale (start at 1.0)
         self.head_scale = nn.Parameter(torch.ones(self.n_head))
+        if self.impl=='eager':
+            # precompute max causal mask
+            mask = torch.tril(torch.ones(config.context_length, config.context_length))
+            self.register_buffer(
+                "causal_mask",
+                mask.view(1, 1, config.context_length, config.context_length)
+            )
+
+        
+        
 
     def forward(self, x):
         B, T, C = x.size()
@@ -393,69 +357,46 @@ class AsymmetricCausalSelfAttention(nn.Module):
         qkv = self.c_attn(x)                    # (B, T, 3C)
         q, k, v = qkv.split(C, dim=2)           # each (B, T, C)
 
-        # reshape into (B, n_head, T, head_dim)
-        q = q.view(B, T, self.n_head, self.head_dim).transpose(1,2)
-        k = k.view(B, T, self.n_head, self.head_dim).transpose(1,2)
-        v = v.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+        if self.impl=='eager':
 
-        # scaled‐dot‐product
-        scores = q @ k.transpose(-2,-1)         # (B, n_head, T, T)
-        # apply per-head temperature
-        temp   = self.head_temp.view(1, self.n_head, 1, 1)
-        scores = scores * temp
-        att    = F.softmax(scores, dim=-1)
-        y      = att @ v                        # (B, n_head, T, head_dim)
+            # reshape into (B, n_head, T, head_dim)
+            q = q.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+            k = k.view(B, T, self.n_head, self.head_dim).transpose(1,2)
+            v = v.view(B, T, self.n_head, self.head_dim).transpose(1,2)
 
-        # per-head gating
-        gate = self.head_scale.view(1, self.n_head, 1, 1)
-        y    = y * gate
+            # scaled‐dot‐product
+            scores = q @ k.transpose(-2,-1)         # (B, n_head, T, T)
+            # apply per-head temperature
+            temp   = self.head_temp.view(1, self.n_head, 1, 1)
+            scores = scores * temp
+            scores = scores.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf'))
+            att    = F.softmax(scores, dim=-1) #Mask seems to be mising here...
+            y      = att @ v                        # (B, n_head, T, head_dim)
 
-        # reassemble & project
-        y = y.transpose(1,2).contiguous().view(B, T, C)
+            # per-head gating
+            gate = self.head_scale.view(1, self.n_head, 1, 1)
+            y    = y * gate
+
+            # reassemble & project
+            y = y.transpose(1,2).contiguous().view(B, T, C)
+        else:
+            q, k, v = tuple(
+                map(lambda t: t.view(B, T, self.n_head, self.head_dim).to(torch.bfloat16), 
+                    (q, k, v)))
+            
+            temp   = self.head_temp.view(1, self.n_head, 1, 1).transpose(1,2)
+
+            q*=temp
+
+            y = flash_attn_func(q, k, v, causal=True, softmax_scale=1.0)
+            # per-head gating
+            gate = self.head_scale.view(1, self.n_head, 1, 1).transpose(1,2)
+
+            y*=gate 
+            y = y.contiguous().view(B, T, C)
+
         return self.c_proj(y)
 
-
-# -------------------------------------------------------------------------
-# 3) Hook it into your GPT2 Block
-# -------------------------------------------------------------------------
-# class Block(nn.Module):
-#     def __init__(self, config):
-#         super().__init__()
-#         # …
-#         self.ln_1 = nn.LayerNorm(config.n_embd)
-#         self.attn = AsymmetricCausalSelfAttention(config)  # <- swapped in
-#         self.ln_2 = nn.LayerNorm(config.n_embd)
-#         self.mlp  = MLP(config)                           # your asymmetric MLP
-
-#     def forward(self, x):
-#         x = x + self.attn(self.ln_1(x))
-#         x = x + self.mlp(self.ln_2(x))
-#         return x
-
-
-# # -------------------------------------------------------------------------
-# # 4) Training loop using ECD_q1_scaled
-# # -------------------------------------------------------------------------
-# model = GPT2Model(config)      # however you instantiate your GPT2
-# optimizer = ECD_q1_scaled(
-#     model.parameters(),
-#     lr=0.01,
-#     eta=1.0,
-#     weight_decay=5e-5,
-#     F0=0.0,
-#     consEn=True
-# )
-
-# for epoch in range(epochs):
-#     for batch in dataloader:
-#         def closure():
-#             optimizer.zero_grad()
-#             logits = model(batch.input_ids)
-#             loss   = loss_fn(logits, batch.labels)
-#             loss.backward()
-#             return loss
-#         loss = optimizer.step(closure)
-#     print(f"Epoch {epoch}  loss {loss.item():.4f}")
 
 
 
@@ -513,66 +454,6 @@ class CausalSelfAttention(nn.Module):
 
 
 
-# class AsymmetricCausalSelfAttention(nn.Module):
-#     def __init__(self, config):
-#         super().__init__()
-#         assert config.n_embd % config.n_head == 0
-
-#         self.n_head = config.n_head
-#         self.head_dim = config.n_embd // config.n_head
-
-#         # fused QKV projection
-#         self.c_attn = nn.Linear(config.n_embd, 3 * config.n_embd)
-#         # output projection
-#         self.c_proj = nn.Linear(config.n_embd, config.n_embd)
-#         self.c_proj.NANOGPT_SCALE_INIT = 1
-
-#         # --- learnable asymmetry parameters ---
-#         # one temperature per head (initialized so that 1/√dk is the starting temp)
-#         init_temp = 1.0 / math.sqrt(self.head_dim)
-#         self.head_temp = nn.Parameter(torch.ones(self.n_head) * init_temp)
-
-#         # one output‐scale per head (initialized to 1.0)
-#         self.head_scale = nn.Parameter(torch.ones(self.n_head))
-
-#     def forward(self, x):
-#         B, T, C = x.size()
-
-#         # 1) project to QKV and split
-#         qkv = self.c_attn(x)                     # (B, T, 3*C)
-#         q, k, v = qkv.split(C, dim=2)            # each (B, T, C)
-
-#         # 2) reshape into heads
-#         # (B, T, n_head, head_dim) → (B, n_head, T, head_dim)
-#         q = q.view(B, T, self.n_head, self.head_dim).transpose(1,2)
-#         k = k.view(B, T, self.n_head, self.head_dim).transpose(1,2)
-#         v = v.view(B, T, self.n_head, self.head_dim).transpose(1,2)
-
-#         # 3) scaled‐dot‐product with per‑head temperature
-#         #    q @ kᵀ → (B, n_head, T, T)
-#         scores = q @ k.transpose(-2, -1)
-#         # apply each head’s temperature: broadcast head_temp over batch & positions
-#         # head_temp: (n_head,) → (1, n_head, 1, 1)
-#         temp = self.head_temp.view(1, self.n_head, 1, 1)
-#         scores = scores * temp
-
-#         # 4) causal mask + softmax
-#         att = F.softmax(scores, dim=-1, dtype=scores.dtype)
-
-#         # 5) attention output
-#         y = att @ v  # (B, n_head, T, head_dim)
-
-#         # 6) per‑head output gating
-#         # head_scale: (n_head,) → (1, n_head, 1, 1)
-#         gate = self.head_scale.view(1, self.n_head, 1, 1)
-#         y = y * gate
-
-#         # 7) re‑assemble and project
-#         y = y.transpose(1,2).contiguous().view(B, T, C)
-#         y = self.c_proj(y)
-
-#         return y
-
 
 class MLP(nn.Module):
 
@@ -616,17 +497,7 @@ class ChannelWiseLeakyReLU1d(nn.Module):
         return pos + s * neg
 
 
-# -------------------------------------------------------------------------
-# Option B: Use PyTorch’s PReLU but randomize each slope at init
-# -------------------------------------------------------------------------
-# class RandomPReLU1d(nn.PReLU):
-#     def __init__(self, features, init_slope=0.2, slope_std=0.05):
-#         # num_parameters=features => one weight per hidden neuron
-#         super().__init__(num_parameters=features, init=init_slope)
-#         # now randomly perturb each slope so they’re all distinct
-#         with torch.no_grad():
-#             self.weight.mul_(0)  # zero out the default
-#             self.weight.add_(torch.randn_like(self.weight) * slope_std + init_slope)
+
 
 class RandomPReLU1d(nn.Module):
     def __init__(self, features, init_slope=0.2, slope_std=0.05):
