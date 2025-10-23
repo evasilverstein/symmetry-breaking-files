@@ -1,0 +1,274 @@
+{
+  "nbformat": 4,
+  "nbformat_minor": 0,
+  "metadata": {
+    "colab": {
+      "provenance":
+    },
+    "kernelspec": {
+      "name": "python3",
+      "display_name": "Python 3"
+    },
+    "language_info": {
+      "name": "python"
+    }
+  },
+  "cells":,
+      "metadata": {
+        "id": "view-in-github"
+      }
+    },
+    {
+      "cell_type": "markdown",
+      "source":,
+      "metadata": {
+        "id": "1_setup"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source":,
+      "metadata": {
+        "id": "config_code"
+      },
+      "execution_count": null,
+      "outputs":
+    },
+    {
+      "cell_type": "markdown",
+      "source":,
+      "metadata": {
+        "id": "2_load_model"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source":),\n",
+        "            ln_f = LayerNorm(config.n_embd, bias=config.bias),\n",
+        "        ))\n",
+        "        self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)\n",
+        "        self.transformer.wte.weight = self.lm_head.weight\n",
+        "\n",
+        "    def forward(self, idx):\n",
+        "        # This is a dummy forward method to allow model loading and hooking.\n",
+        "        # The actual analysis will be done via hooks on the blocks.\n",
+        "        pass\n",
+        "\n",
+        "# --- Load Model ---\n",
+        "model = GPT(config)\n",
+        "state_dict = torch.load(CKPT_PATH, map_location=DEVICE)\n",
+        "# The ECD optimizer stores model params inside a 'model' key\n",
+        "if 'model' in state_dict:\n",
+        "    state_dict = state_dict['model']\n",
+        "\n",
+        "# Filter out unexpected keys (e.g., from optimizer state)\n",
+        "unwanted_prefix = '_orig_mod.'\n",
+        "for k,v in list(state_dict.items()):\n",
+        "    if k.startswith(unwanted_prefix):\n",
+        "        state_dict[k[len(unwanted_prefix):]] = state_dict.pop(k)\n",
+        "\n",
+        "model.load_state_dict(state_dict, strict=False)\n",
+        "model.to(DEVICE)\n",
+        "model.eval()\n",
+        "print(\"Model loaded successfully.\")\n",
+        "\n",
+        "# --- Load Tokenizer ---\n",
+        "# Using a standard GPT2 tokenizer. The vocab size mismatch is expected.\n",
+        "tokenizer = GPT2Tokenizer.from_pretrained('gpt2')\n",
+        "print(f\"Tokenizer loaded. Vocab size: {tokenizer.vocab_size}. Model vocab size: {config.vocab_size}\")\n",
+        "\n",
+        "# --- Data Loading Function ---\n",
+        "def get_batch(split='train'):\n",
+        "    data = np.memmap(BIN_PATH, dtype=np.uint16, mode='r')\n",
+        "    ix = torch.randint(len(data) - BLOCK_SIZE, (BATCH_SIZE,))\n",
+        "    x = torch.stack().astype(np.int64)) for i in ix])\n",
+        "    if DEVICE == 'cuda':\n",
+        "        x = x.pin_memory().to(DEVICE, non_blocking=True)\n",
+        "    return x"
+      ],
+      "metadata": {
+        "id": "model_loading_code"
+      },
+      "execution_count": null,
+      "outputs":
+    },
+    {
+      "cell_type": "markdown",
+      "source":,
+      "metadata": {
+        "id": "3_hooks"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": = q.detach().cpu()\n",
+        "        activation_cache[f'layer_{layer_idx}_k'] = k.detach().cpu()\n",
+        "    return hook\n",
+        "\n",
+        "# Register a hook for each attention block in the model\n",
+        "hooks =\n",
+        "for i, block in enumerate(model.transformer.h):\n",
+        "    hook = block.attn.register_forward_hook(get_qk_hook(i))\n",
+        "    hooks.append(hook)\n",
+        "\n",
+        "print(f\"Registered {len(hooks)} hooks on attention blocks.\")"
+      ],
+      "metadata": {
+        "id": "hooks_code"
+      },
+      "execution_count": null,
+      "outputs":
+    },
+    {
+      "cell_type": "markdown",
+      "source":,
+      "metadata": {
+        "id": "4_forward_pass"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source":,
+      "metadata": {
+        "id": "forward_pass_code"
+      },
+      "execution_count": null,
+      "outputs":
+    },
+    {
+      "cell_type": "markdown",
+      "source":,
+      "metadata": {
+        "id": "5_positional_analysis"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source": [
+        "positional_alignment = {'q':, 'k':}\n",
+        "\n",
+        "for layer_idx in range(config.n_layer):\n",
+        "    q_vecs = activation_cache[f'layer_{layer_idx}_q'].to(DEVICE)\n",
+        "    k_vecs = activation_cache[f'layer_{layer_idx}_k'].to(DEVICE)\n",
+        "    b_q = b_q_vectors[layer_idx]\n",
+        "    \n",
+        "    # q_vecs shape: (B, n_head, T, d_head)\n",
+        "    # b_q shape:    (B, n_head, 1, d_head)\n",
+        "    # Cosine similarity will broadcast b_q across the sequence length dimension (T)\n",
+        "    q_sim = F.cosine_similarity(q_vecs, b_q, dim=-1) # Shape: (B, n_head, T)\n",
+        "    k_sim = F.cosine_similarity(k_vecs, b_q, dim=-1) # Shape: (B, n_head, T)\n",
+        "    \n",
+        "    # Average across batch and heads to get alignment per position\n",
+        "    # Shape: (T,)\n",
+        "    positional_alignment['q'].append(q_sim.mean(dim=).cpu().numpy())\n",
+        "    positional_alignment['k'].append(k_sim.mean(dim=).cpu().numpy())\n",
+        "\n",
+        "# --- Visualization ---\n",
+        "sns.set_style(\"whitegrid\")\n",
+        "fig, axes = plt.subplots(1, 2, figsize=(16, 6), sharey=True)\n",
+        "\n",
+        "for i, layer_idx in enumerate([0, config.n_layer // 2, config.n_layer - 1]):\n",
+        "    axes.plot(positional_alignment['q'][layer_idx], label=f'Layer {layer_idx}')\n",
+        "    axes.[1]plot(positional_alignment['k'][layer_idx], label=f'Layer {layer_idx}')\n",
+        "\n",
+        "axes.set_title('Query Vector ($W_Q x$) Alignment with $b_Q$')\n",
+        "axes.set_xlabel('Token Position in Sequence')\n",
+        "axes.set_ylabel('Mean Cosine Similarity')\n",
+        "axes.legend()\n",
+        "axes.grid(True)\n",
+        "\n",
+        "axes.[1]set_title('Key Vector ($W_K x$) Alignment with $b_Q$')\n",
+        "axes.[1]set_xlabel('Token Position in Sequence')\n",
+        "axes.[1]legend()\n",
+        "axes.[1]grid(True)\n",
+        "\n",
+        "plt.suptitle('Positional Alignment with $b_Q$ Across Layers', fontsize=16)\n",
+        "plt.tight_layout(rect=[0, 0, 1, 0.96])\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "positional_analysis_code"
+      },
+      "execution_count": null,
+      "outputs":
+    },
+    {
+      "cell_type": "markdown",
+      "source":,
+      "metadata": {
+        "id": "6_token_analysis"
+      }
+    },
+    {
+      "cell_type": "code",
+      "source":.to(DEVICE)\n",
+        "    b_q = b_q_vectors[layer_idx]\n",
+        "    q_sim = F.cosine_similarity(q_vecs, b_q, dim=-1) # Shape: (B, n_head, T)\n",
+        "    \n",
+        "    # Average across heads, then flatten to match input_ids\n",
+        "    # Shape: (B*T)\n",
+        "    flat_sims = q_sim.mean(dim=1).cpu().flatten()\n",
+        "    \n",
+        "    for token_id, sim in zip(flat_input_ids, flat_sims):\n",
+        "        token_id = token_id.item()\n",
+        "        if token_id not in token_alignments:\n",
+        "            token_alignments[token_id] =\n",
+        "        token_alignments[token_id].append(sim.item())\n",
+        "\n",
+        "# Calculate mean alignment for each token\n",
+        "mean_token_alignments = {token: np.mean(sims) for token, sims in token_alignments.items()}\n",
+        "\n",
+        "# Sort tokens by alignment\n",
+        "sorted_alignments = sorted(mean_token_alignments.items(), key=lambda item: item[1], reverse=True)\n",
+        "\n",
+        "# --- Display Top and Bottom Aligned Tokens ---\n",
+        "N = 15 # Number of tokens to display\n",
+        "print(f\"--- Top {N} Most Aligned Tokens with b_Q ---\")\n",
+        "for token_id, avg_sim in sorted_alignments[:N]:\n",
+        "    token_str = tokenizer.decode([token_id])\n",
+        "    print(f'Token: \"{token_str}\" (ID: {token_id})\\t Avg. Cosine Sim: {avg_sim:.4f}')\n",
+        "\n",
+        "print(f\"\\n--- Top {N} Most Anti-Aligned Tokens with b_Q ---\")\n",
+        "for token_id, avg_sim in sorted_alignments[-N:]:\n",
+        "    token_str = tokenizer.decode([token_id])\n",
+        "    print(f'Token: \"{token_str}\" (ID: {token_id})\\t Avg. Cosine Sim: {avg_sim:.4f}')\n",
+        "\n",
+        "# --- Visualization ---\n",
+        "top_tokens = sorted_alignments[:N]\n",
+        "bottom_tokens = sorted_alignments[-N:]\n",
+        "combined = top_tokens + bottom_tokens\n",
+        "\n",
+        "tokens = [tokenizer.decode(t) for t in combined]\n",
+        "scores = [t[1] for t in combined]\n",
+        "\n",
+        "plt.figure(figsize=(12, 8))\n",
+        "colors = ['g' if s > 0 else 'r' for s in scores]\n",
+        "ax = sns.barplot(x=scores, y=tokens, palette=colors, orient='h')\n",
+        "ax.set_title(f'Top {N} Most and Least Aligned Tokens with $b_Q$ (Query Vectors)')\n",
+        "ax.set_xlabel('Average Cosine Similarity')\n",
+        "ax.set_ylabel('Token')\n",
+        "plt.show()"
+      ],
+      "metadata": {
+        "id": "token_analysis_code"
+      },
+      "execution_count": null,
+      "outputs":
+    },
+    {
+      "cell_type": "markdown",
+      "source":\n",
+        "*   **Semantic Bias:** Punctuation, stopwords, or other low-information tokens might be strongly aligned or anti-aligned, suggesting $b_Q$ helps the model filter or focus information.\n",
+        "\n",
+        "**Next Steps could include:**\n",
+        "1.  **Running on more data:** Averaging these statistics over many batches will produce more robust results.\n",
+        "2.  **Head-level analysis:** Instead of averaging across all heads, visualize these patterns for individual heads to see if they specialize.\n",
+        "3.  **Syntactic analysis:** Use a Part-of-Speech (POS) tagger to group tokens by their syntactic role (noun, verb, adjective) and check for alignment patterns.\n",
+        "4.  **Causal interventions:** Actively manipulate the query vectors during a forward pass (e.g., by zeroing out their component along the $b_Q$ axis) and observe the effect on the model's output probabilities. This can establish a causal link between alignment and model behavior."
+      ],
+      "metadata": {
+        "id": "7_conclusion"
+      }
+    }
+  ]
+}
