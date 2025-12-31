@@ -1,6 +1,6 @@
 # Symmetry Breaking in Transformer Optimization
 
-Code accompanying the paper on rotational symmetry breaking in transformer attention for improved optimization with energy-conserving descent (ECD).
+Code accompanying the paper on rotational symmetry breaking in transformer attention for improved optimization with energy-conserving descent (ECD) and SGDM, along with comparisons to AdamW and Soap.
 
 ## Overview
 
