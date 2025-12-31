@@ -4,7 +4,7 @@ Code accompanying the paper on rotational symmetry breaking in transformer atten
 
 ## Overview
 
-This repository provides training and analysis code for studying how breaking the O(d_k) rotational symmetry in transformer attention affects optimization dynamics, particularly for the physics-inspired ECD optimizer.
+This repository provides training and analysis code for studying how breaking the O(d_k) rotational symmetry in transformer attention affects optimization dynamics, particularly for the physics-inspired ECD optimizer as well as SGDM with nonzero initial momentum.
 
 ### Key Insight
 
@@ -13,7 +13,7 @@ Standard transformer attention has continuous rotational symmetries:
 W_Q → R·W_Q,  W_K → R·W_K  (leaves attention scores invariant)
 ```
 
-For Hamiltonian optimizers like ECD, these symmetries create conserved angular momenta (Noether currents) that constrain optimization dynamics. Breaking these symmetries via random query biases enables ECD to match or exceed Adam's performance.
+For Hamiltonian optimizers like ECD, these symmetries create conserved angular momenta (Noether currents) that constrain optimization dynamics. Breaking these symmetries via random query biases enables ECD to better compete with Adam, and with suitable optimizers it enables the model to learn useful alignments of key vectors with the untrained bias bQ.
 
 ## Repository Structure
 
