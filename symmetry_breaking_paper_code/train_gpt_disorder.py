@@ -8,6 +8,8 @@ import numpy as np
 import torch
 import torch.nn as nn
 import torch.nn.functional as F
+from torch.nn.attention import sdpa_kernel, SDPBackend
+
 
 # --- optional logger ---
 try:
@@ -111,6 +113,7 @@ class GPTConfig:
     n_layer:        int = 12
     n_head:         int = 12
     n_embd:         int = 768
+    rotary_base:    int = 10000
 
 PRESETS = {
     "124m": GPTConfig(n_layer=12, n_head=12, n_embd=768),
@@ -118,6 +121,79 @@ PRESETS = {
     "774m": GPTConfig(n_layer=36, n_head=20, n_embd=1280),
     "1.3b": GPTConfig(n_layer=48, n_head=25, n_embd=1600),
 }
+
+def rotate_half(x):
+    """Rotates half the hidden dims of the input."""
+    x1 = x[..., : x.shape[-1] // 2]
+    x2 = x[..., x.shape[-1] // 2 :]
+    return torch.cat((-x2, x1), dim=-1)
+
+def apply_rotary_pos_emb(q, k, cos, sin, position_ids=None, unsqueeze_dim=1):
+    """
+    Applies Rotary Position Embedding to the query and key tensors. This version
+    correctly handles cases where the rotary dimension is smaller than the head dimension.
+    """
+    # The rotary dimension is determined by the size of the cos/sin tensors.
+    rotary_dim = cos.shape[-1]
+    
+    # Unsqueeze cos and sin for broadcasting
+    cos = cos.unsqueeze(unsqueeze_dim)
+    sin = sin.unsqueeze(unsqueeze_dim)
+    
+    # Slice the query and key into the part to be rotated and the part to be passed through.
+    q_rot, q_pass = q[..., :rotary_dim], q[..., rotary_dim:]
+    k_rot, k_pass = k[..., :rotary_dim], k[..., rotary_dim:]
+
+    # Apply RoPE to the first part
+    q_rot = (q_rot * cos) + (rotate_half(q_rot) * sin)
+    k_rot = (k_rot * cos) + (rotate_half(k_rot) * sin)
+
+    # Concatenate the rotated and passed-through parts back together
+    q_embed = torch.cat((q_rot, q_pass), dim=-1)
+    k_embed = torch.cat((k_rot, k_pass), dim=-1)
+    
+    return q_embed, k_embed
+
+class RotaryEmbedding(nn.Module):
+    def __init__(self, config:GPTConfig, device=None):
+        super().__init__()
+        self.config = config
+        
+        # Get the full head dimension
+        head_dim = config.n_embd // config.n_head
+        
+        # Calculate the rotary dimension based on rope_pct
+        # This is the dimension that RoPE will be applied to.
+        rotary_dim = int(head_dim * 0.5) #config.rope_pct=0.5
+        
+        # The base for the inverse frequency calculation is rotary_dim
+        # This mirrors the Megatron `dim = int(dim * rotary_percent)` logic
+        inv_freq = 1.0 / (config.rotary_base ** (torch.arange(0, rotary_dim, 2, dtype=torch.float32) / rotary_dim))
+
+        self.register_buffer("inv_freq", inv_freq, persistent=False)
+        # Assuming no advanced RoPE scaling for now
+        self.attention_scaling = 1.0
+
+    @torch.no_grad()
+    def forward(self, x, position_ids): #the only information that x provides is device and dtype
+        # This forward pass now correctly uses the smaller `inv_freq`
+        inv_freq_expanded = self.inv_freq[None, :, None].float().expand(position_ids.shape[0], -1, 1)
+        position_ids_expanded = position_ids[:, None, :].float()
+        
+        device_type = x.device.type
+        device_type = device_type if isinstance(device_type, str) and device_type != "mps" else "cpu"
+        with torch.autocast(device_type=device_type, enabled=False):
+            freqs = (inv_freq_expanded.float() @ position_ids_expanded.float()).transpose(1, 2)
+            # freqs now has shape [batch, seq_len, rotary_dim / 2]
+            
+            emb = torch.cat((freqs, freqs), dim=-1)
+            cos = emb.cos()
+            sin = emb.sin()
+            # cos and sin now have shape [batch, seq_len, rotary_dim]
+
+        return cos.to(dtype=x.dtype), sin.to(dtype=x.dtype)
+
+
 
 # -------------------------
 # Disordered attention & asymmetric MLP (matches your training file)
@@ -155,7 +231,7 @@ class DisorderedCausalSelfAttention(nn.Module):
         self.use_k_bias = use_k_bias
 
         mask = torch.tril(torch.ones(config.context_length, config.context_length))
-        self.register_buffer("causal_mask", mask.view(1,1,config.context_length,config.context_length))
+        #self.register_buffer("causal_mask", mask.view(1,1,config.context_length,config.context_length))
 
     @torch.no_grad()
     def _resample_biases(self, device):
@@ -166,13 +242,16 @@ class DisorderedCausalSelfAttention(nn.Module):
         self.bQ.copy_(base_Q.unsqueeze(0).expand(self.n_head, -1).contiguous())
         self.bK.copy_(base_K.unsqueeze(0).expand(self.n_head, -1).contiguous())
 
-    def forward(self, x):
+    def forward(self, x, position_embeddings):
         B, T, C = x.shape
         nh, d = self.n_head, self.d
 
         if self.training and self.mode == "per_batch":
             maybe_graph_break()
             self._resample_biases(x.device)
+        
+        cos, sin = position_embeddings
+        q, k = apply_rotary_pos_emb(q, k, cos, sin)  
 
         qkv = self.c_attn(x); q, k, v = qkv.split(C, dim=2)
         q = q.view(B, T, nh, d).transpose(1,2)
@@ -182,11 +261,13 @@ class DisorderedCausalSelfAttention(nn.Module):
         q = q + self.bQ.view(1, nh, 1, d)
         if self.use_k_bias:
             k = k + self.bK.view(1, nh, 1, d)
+        with sdpa_kernel(backends=[SDPBackend.FLASH_ATTENTION]):
+            y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
 
-        scores = (q @ k.transpose(-2,-1)) / math.sqrt(d)
-        scores = scores.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf'))
-        att = F.softmax(scores, dim=-1)
-        y = att @ v
+        # scores = (q @ k.transpose(-2,-1)) / math.sqrt(d)
+        # scores = scores.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf'))
+        # att = F.softmax(scores, dim=-1)
+        # y = att @ v
         y = y.transpose(1,2).contiguous().view(B, T, C)
         return self.c_proj(y)
 
@@ -216,8 +297,8 @@ class Block(nn.Module):
         self.mlp = AsymmetricMLPPreLU(config)
         self.ln1 = nn.LayerNorm(config.n_embd)
         self.ln2 = nn.LayerNorm(config.n_embd)
-    def forward(self, x):
-        x = x + self.sa(self.ln1(x))
+    def forward(self, x, position_embedding):
+        x = x + self.sa(self.ln1(x, position_embedding))
         x = x + self.mlp(self.ln2(x))
         return x
 
@@ -227,13 +308,14 @@ class GPT(nn.Module):
         self.config = config
         self.transformer = nn.ModuleDict(dict(
             wte  = nn.Embedding(config.vocab_size, config.n_embd),
-            wpe  = nn.Embedding(config.context_length, config.n_embd),
+            #wpe  = nn.Embedding(config.context_length, config.n_embd),
             h    = nn.ModuleList([Block(config, use_k_bias=use_k_bias) for _ in range(config.n_layer)]),
             ln_f = nn.LayerNorm(config.n_embd),
         ))
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.transformer.wte.weight = self.lm_head.weight
         self.apply(self._init_weights)
+        self.p_emb = RotaryEmbedding(config=self.config)
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -250,9 +332,13 @@ class GPT(nn.Module):
         B, T = idx.size()
         assert T <= self.config.context_length
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
-        x = self.transformer.wte(idx) + self.transformer.wpe(pos)
+        
+
+        x = self.transformer.wte(idx) #+ self.transformer.wpe(pos)
+        pos_emb = self.p_emb(x, pos)
+        
         for block in self.transformer.h:
-            x = block(x)
+            x = block(x, pos_emb)
         x = self.transformer.ln_f(x)
         logits = self.lm_head(x)
         loss = None
