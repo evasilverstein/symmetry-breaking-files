@@ -10,7 +10,8 @@ import torch.nn as nn
 import torch.nn.functional as F
 from torch.nn.attention import sdpa_kernel, SDPBackend
 
-
+USE_ROPE = False 
+USE_FLASH = False 
 # --- optional logger ---
 try:
     import wandb
@@ -202,6 +203,7 @@ class DisorderedCausalSelfAttention(nn.Module):
     def __init__(self, config, mean_Q=None, mean_K=None, std_Q=None, std_K=None,
                  mode="per_batch", use_k_bias=True):
         super().__init__()
+        global USE_FLASH
         assert config.n_embd % config.n_head == 0
         self.n_head = config.n_head
         self.d = config.n_embd // config.n_head
@@ -231,7 +233,8 @@ class DisorderedCausalSelfAttention(nn.Module):
         self.use_k_bias = use_k_bias
 
         mask = torch.tril(torch.ones(config.context_length, config.context_length))
-        #self.register_buffer("causal_mask", mask.view(1,1,config.context_length,config.context_length))
+        if USE_FLASH:
+            self.register_buffer("causal_mask", mask.view(1,1,config.context_length,config.context_length))
 
     @torch.no_grad()
     def _resample_biases(self, device):
@@ -243,15 +246,16 @@ class DisorderedCausalSelfAttention(nn.Module):
         self.bK.copy_(base_K.unsqueeze(0).expand(self.n_head, -1).contiguous())
 
     def forward(self, x, position_embeddings):
+        global USE_ROPE, USE_FLASH
         B, T, C = x.shape
         nh, d = self.n_head, self.d
 
         if self.training and self.mode == "per_batch":
             maybe_graph_break()
             self._resample_biases(x.device)
-        
-        cos, sin = position_embeddings
-        q, k = apply_rotary_pos_emb(q, k, cos, sin)  
+        if USE_ROPE:
+            cos, sin = position_embeddings
+            q, k = apply_rotary_pos_emb(q, k, cos, sin)  
 
         qkv = self.c_attn(x); q, k, v = qkv.split(C, dim=2)
         q = q.view(B, T, nh, d).transpose(1,2)
@@ -261,13 +265,16 @@ class DisorderedCausalSelfAttention(nn.Module):
         q = q + self.bQ.view(1, nh, 1, d)
         if self.use_k_bias:
             k = k + self.bK.view(1, nh, 1, d)
-        with sdpa_kernel(backends=[SDPBackend.FLASH_ATTENTION]):
-            y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
 
-        # scores = (q @ k.transpose(-2,-1)) / math.sqrt(d)
-        # scores = scores.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf'))
-        # att = F.softmax(scores, dim=-1)
-        # y = att @ v
+        if USE_FLASH:
+            with sdpa_kernel(backends=[SDPBackend.FLASH_ATTENTION]):
+                y = F.scaled_dot_product_attention(q, k, v, is_causal=True)
+        else:
+            scores = (q @ k.transpose(-2,-1)) / math.sqrt(d)
+            scores = scores.masked_fill(self.causal_mask[:, :, :T, :T] == 0, float('-inf'))
+            att = F.softmax(scores, dim=-1)
+            y = att @ v
+
         y = y.transpose(1,2).contiguous().view(B, T, C)
         return self.c_proj(y)
 
@@ -305,17 +312,30 @@ class Block(nn.Module):
 class GPT(nn.Module):
     def __init__(self, config: GPTConfig, use_k_bias=True):
         super().__init__()
+        global USE_ROPE
         self.config = config
-        self.transformer = nn.ModuleDict(dict(
-            wte  = nn.Embedding(config.vocab_size, config.n_embd),
-            #wpe  = nn.Embedding(config.context_length, config.n_embd),
-            h    = nn.ModuleList([Block(config, use_k_bias=use_k_bias) for _ in range(config.n_layer)]),
-            ln_f = nn.LayerNorm(config.n_embd),
-        ))
+
+        if not USE_ROPE:
+            self.transformer = nn.ModuleDict(dict(
+                wte  = nn.Embedding(config.vocab_size, config.n_embd),
+                #wpe  = nn.Embedding(config.context_length, config.n_embd),
+                h    = nn.ModuleList([Block(config, use_k_bias=use_k_bias) for _ in range(config.n_layer)]),
+                ln_f = nn.LayerNorm(config.n_embd),
+            ))
+
+        else:
+            self.transformer = nn.ModuleDict(dict(
+                wte  = nn.Embedding(config.vocab_size, config.n_embd),
+                wpe  = nn.Embedding(config.context_length, config.n_embd),
+                h    = nn.ModuleList([Block(config, use_k_bias=use_k_bias) for _ in range(config.n_layer)]),
+                ln_f = nn.LayerNorm(config.n_embd),
+            ))
+
         self.lm_head = nn.Linear(config.n_embd, config.vocab_size, bias=False)
         self.transformer.wte.weight = self.lm_head.weight
         self.apply(self._init_weights)
-        self.p_emb = RotaryEmbedding(config=self.config)
+        if USE_ROPE:
+            self.p_emb = RotaryEmbedding(config=self.config)
 
     def _init_weights(self, module):
         if isinstance(module, nn.Linear):
@@ -329,13 +349,14 @@ class GPT(nn.Module):
             nn.init.normal_(module.weight, mean=0.0, std=0.02)
 
     def forward(self, idx, targets=None):
+        global USE_ROPE
         B, T = idx.size()
         assert T <= self.config.context_length
         pos = torch.arange(0, T, dtype=torch.long, device=idx.device)
         
 
-        x = self.transformer.wte(idx) #+ self.transformer.wpe(pos)
-        pos_emb = self.p_emb(x, pos)
+        x = self.transformer.wte(idx) if USE_ROPE else self.transformer.wte(idx) + self.transformer.wpe(pos)
+        pos_emb = self.p_emb(x, pos) if USE_ROPE else None 
         
         for block in self.transformer.h:
             x = block(x, pos_emb)
