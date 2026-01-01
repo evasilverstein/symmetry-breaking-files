@@ -233,7 +233,7 @@ class DisorderedCausalSelfAttention(nn.Module):
         self.use_k_bias = use_k_bias
 
         mask = torch.tril(torch.ones(config.context_length, config.context_length))
-        if USE_FLASH:
+        if not USE_FLASH:
             self.register_buffer("causal_mask", mask.view(1,1,config.context_length,config.context_length))
 
     @torch.no_grad()
