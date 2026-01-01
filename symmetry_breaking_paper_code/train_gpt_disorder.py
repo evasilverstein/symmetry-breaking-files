@@ -298,7 +298,7 @@ class Block(nn.Module):
         self.ln1 = nn.LayerNorm(config.n_embd)
         self.ln2 = nn.LayerNorm(config.n_embd)
     def forward(self, x, position_embedding):
-        x = x + self.sa(self.ln1(x, position_embedding))
+        x = x + self.sa(self.ln1(x), position_embedding)
         x = x + self.mlp(self.ln2(x))
         return x
 
