@@ -1,0 +1,398 @@
+{
+  "custom": {
+    "checkpoint": "experiments/ecd_vs_soap/results/ecd_flash_bV/ecd-bV-flash-seed456/model_best.pt",
+    "summary": {
+      "pattern_numeric": {
+        "top1_accuracy": 0.0,
+        "top5_accuracy": 0.75,
+        "avg_rank": 5.75,
+        "n_tasks": 4
+      },
+      "pattern_alpha": {
+        "top1_accuracy": 0.0,
+        "top5_accuracy": 0.0,
+        "avg_rank": -1,
+        "n_tasks": 2
+      },
+      "retrieval_near": {
+        "top1_accuracy": 0.0,
+        "top5_accuracy": 0.5,
+        "avg_rank": 2.0,
+        "n_tasks": 2
+      },
+      "retrieval_far": {
+        "top1_accuracy": 0.0,
+        "top5_accuracy": 0.0,
+        "avg_rank": -1,
+        "n_tasks": 2
+      },
+      "simple_inference": {
+        "top1_accuracy": 0.0,
+        "top5_accuracy": 0.5,
+        "avg_rank": 5.0,
+        "n_tasks": 2
+      },
+      "negation": {
+        "avg_ppl_ratio": 1.5968189860907909,
+        "n_tasks": 3
+      },
+      "syntax": {
+        "avg_ppl_ratio": 3.9582256176965815,
+        "n_tasks": 2
+      },
+      "copy": {
+        "top1_accuracy": 0.0,
+        "top5_accuracy": 0.5,
+        "avg_rank": 2.0,
+        "n_tasks": 2
+      }
+    },
+    "detailed": {
+      "pattern_numeric": [
+        {
+          "prompt": "1, 2, 3, 4,",
+          "expected": " 5",
+          "top_predictions": [
+            " 6",
+            " 4",
+            " 7",
+            " 8",
+            " 5"
+          ],
+          "top_probs": [
+            0.09514492005109787,
+            0.0920850932598114,
+            0.051491670310497284,
+            0.04690784588456154,
+            0.038084276020526886
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": true,
+          "expected_rank": 5
+        },
+        {
+          "prompt": "2, 4, 6, 8,",
+          "expected": " 10",
+          "top_predictions": [
+            " 8",
+            " 9",
+            " 7",
+            " 11",
+            " 10"
+          ],
+          "top_probs": [
+            0.12927557528018951,
+            0.0736599788069725,
+            0.0514969676733017,
+            0.03908710554242134,
+            0.03606165200471878
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": true,
+          "expected_rank": 5
+        },
+        {
+          "prompt": "1, 1, 2, 3, 5, 8,",
+          "expected": " 13",
+          "top_predictions": [
+            " 8",
+            " 9",
+            " 7",
+            " 10",
+            " 11"
+          ],
+          "top_probs": [
+            0.12405741959810257,
+            0.10988405346870422,
+            0.07038086652755737,
+            0.06706106662750244,
+            0.05724768340587616
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": 10
+        },
+        {
+          "prompt": "10, 20, 30, 40,",
+          "expected": " 50",
+          "top_predictions": [
+            " 30",
+            "000",
+            " 50",
+            " 40",
+            " were"
+          ],
+          "top_probs": [
+            0.0550353042781353,
+            0.039852600544691086,
+            0.03742513060569763,
+            0.036148183047771454,
+            0.03004392981529236
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": true,
+          "expected_rank": 3
+        }
+      ],
+      "pattern_alpha": [
+        {
+          "prompt": "A, B, C, D,",
+          "expected": " E",
+          "top_predictions": [
+            " D",
+            " is",
+            " and",
+            ",",
+            " to"
+          ],
+          "top_probs": [
+            0.04334937036037445,
+            0.041252098977565765,
+            0.03150201961398125,
+            0.022807398810982704,
+            0.01943162828683853
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": -1
+        },
+        {
+          "prompt": "X, Y, Z, A,",
+          "expected": " B",
+          "top_predictions": [
+            " Z",
+            " X",
+            " and",
+            " of",
+            " Y"
+          ],
+          "top_probs": [
+            0.023621441796422005,
+            0.019980454817414284,
+            0.0197734534740448,
+            0.018041541799902916,
+            0.01434948667883873
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": -1
+        }
+      ],
+      "retrieval_near": [
+        {
+          "prompt": "The color is blue. The shape is round. The color is",
+          "expected": " blue",
+          "top_predictions": [
+            " is",
+            " blue",
+            " dark",
+            " round",
+            " usually"
+          ],
+          "top_probs": [
+            0.12744788825511932,
+            0.034064870327711105,
+            0.02988038957118988,
+            0.022835485637187958,
+            0.018009310588240623
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": true,
+          "expected_rank": 2
+        },
+        {
+          "prompt": "John is tall. Mary is short. John is",
+          "expected": " tall",
+          "top_predictions": [
+            " is",
+            " the",
+            " famous",
+            " was",
+            " his"
+          ],
+          "top_probs": [
+            0.026529155671596527,
+            0.026188766583800316,
+            0.015112570486962795,
+            0.014578301459550858,
+            0.014419429004192352
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": -1
+        }
+      ],
+      "retrieval_far": [
+        {
+          "prompt": "The capital of France is Paris. The capital of Germany is Berlin. The capital of Spain is Madrid. The capital of Italy is Rome. The capital of France is",
+          "expected": " Paris",
+          "top_predictions": [
+            " was",
+            " is",
+            " India",
+            " capital",
+            " the"
+          ],
+          "top_probs": [
+            0.09197163581848145,
+            0.08227303624153137,
+            0.02340592071413994,
+            0.021831536665558815,
+            0.01751202717423439
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": -1
+        },
+        {
+          "prompt": "Alice likes apples. Bob likes bananas. Carol likes cherries. Dave likes dates. Alice likes",
+          "expected": " apples",
+          "top_predictions": [
+            " to",
+            " the",
+            " of",
+            ",",
+            ":"
+          ],
+          "top_probs": [
+            0.08800313621759415,
+            0.02607572078704834,
+            0.01863051950931549,
+            0.014854311011731625,
+            0.014826332218945026
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": -1
+        }
+      ],
+      "simple_inference": [
+        {
+          "prompt": "If it rains, the ground gets wet. It is raining. The ground",
+          "expected": " gets wet",
+          "top_predictions": [
+            " surface",
+            " water",
+            " ice",
+            " is",
+            " soil"
+          ],
+          "top_probs": [
+            0.10393158346414566,
+            0.09299430251121521,
+            0.03374173864722252,
+            0.02696969360113144,
+            0.02664298191666603
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": 7
+        },
+        {
+          "prompt": "All birds can fly. A sparrow is a bird. A sparrow can",
+          "expected": " fly",
+          "top_predictions": [
+            " can",
+            " is",
+            " fly",
+            " are",
+            " have"
+          ],
+          "top_probs": [
+            0.056837935000658035,
+            0.05263993889093399,
+            0.03680239990353584,
+            0.02579341270029545,
+            0.02140909992158413
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": true,
+          "expected_rank": 3
+        }
+      ],
+      "negation": [
+        {
+          "prompt1": "The sun is bright.",
+          "prompt2": "The sun is not bright.",
+          "ppl1": 1732.494140625,
+          "ppl2": 2703.8203125,
+          "ppl_ratio": 1.5606519232004978
+        },
+        {
+          "prompt1": "Water is wet.",
+          "prompt2": "Water is not wet.",
+          "ppl1": 520.70849609375,
+          "ppl2": 1090.056396484375,
+          "ppl_ratio": 2.0934100454702738
+        },
+        {
+          "prompt1": "Fire is hot.",
+          "prompt2": "Fire is not hot.",
+          "ppl1": 2308.071044921875,
+          "ppl2": 2622.88037109375,
+          "ppl_ratio": 1.1363949896016008
+        }
+      ],
+      "syntax": [
+        {
+          "prompt1": "Hello, world!",
+          "prompt2": "Hello world",
+          "ppl1": 1454.9415283203125,
+          "ppl2": 5544.3564453125,
+          "ppl_ratio": 3.8107073977833994
+        },
+        {
+          "prompt1": "\"I am here,\" she said.",
+          "prompt2": "I am here she said",
+          "ppl1": 802.5733642578125,
+          "ppl2": 3295.16064453125,
+          "ppl_ratio": 4.105743837609764
+        }
+      ],
+      "copy": [
+        {
+          "prompt": "Copy: abc -> abc. Copy: xyz ->",
+          "expected": " xyz",
+          "top_predictions": [
+            " .",
+            " x",
+            "\n",
+            " +",
+            "."
+          ],
+          "top_probs": [
+            0.11706279963254929,
+            0.04060811921954155,
+            0.022748740389943123,
+            0.018364498391747475,
+            0.01745058409869671
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": true,
+          "expected_rank": 2
+        },
+        {
+          "prompt": "Repeat: hello -> hello. Repeat: world ->",
+          "expected": " world",
+          "top_predictions": [
+            " .",
+            " ->",
+            " +",
+            " =",
+            " >"
+          ],
+          "top_probs": [
+            0.10429483652114868,
+            0.035444553941488266,
+            0.022862976416945457,
+            0.01884777657687664,
+            0.018461259081959724
+          ],
+          "expected_in_top1": false,
+          "expected_in_top5": false,
+          "expected_rank": -1
+        }
+      ]
+    }
+  }
+}
