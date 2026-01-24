@@ -12,6 +12,14 @@ Transformers have continuous rotational symmetries in attention (Q → RQ, K →
 pip install -r requirements.txt
 ```
 
+### Included Optimizers
+
+This package includes four optimizers:
+- **ECD** (`ecd_symbreak/optimizer.py`) - Energy Conserving Descent
+- **Adam** - PyTorch AdamW
+- **SGDM** - SGD with momentum
+- **SOAP** (`soap.py`) - Shampoo-like optimizer, included in this package
+
 ## Quick Start
 
 ### Training with ECD + Symmetry Breaking (bQ + bV)
@@ -55,10 +63,29 @@ python scripts/analyze_bQ.py \
     --data_path ./data/finewebedu10B/finewebedu_train_000099.bin
 ```
 
+## Training Output and Logging
+
+Each training run saves to `runs/<run-name>/` with:
+- `model_best.pt` - Checkpoint with best validation loss
+- `model_final.pt` - Final checkpoint
+- `training_log.csv` - Training curves (update, train_loss, val_loss, consumed_tokens, tok_per_s, elapsed_sec)
+
+To plot training curves without W&B:
+```python
+import pandas as pd
+import matplotlib.pyplot as plt
+
+df = pd.read_csv("runs/my-run/training_log.csv")
+plt.plot(df["consumed_tokens"], df["val_loss"])
+plt.xlabel("Tokens"); plt.ylabel("Validation Loss")
+plt.savefig("training_curve.png")
+```
+
 ## Package Structure
 
 ```
 paper_code/
+├── soap.py               # SOAP optimizer (included)
 ├── ecd_symbreak/
 │   ├── config.py          # GPTConfig, model presets
 │   ├── optimizer.py       # ECD_q1_scaled optimizer
