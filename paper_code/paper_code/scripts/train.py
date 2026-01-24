@@ -241,6 +241,11 @@ def main():
     ckpt_dir = os.path.join(args.log_dir, run_name)
     os.makedirs(ckpt_dir, exist_ok=True)
 
+    # Initialize CSV log file for training curves
+    log_csv_path = os.path.join(ckpt_dir, "training_log.csv")
+    with open(log_csv_path, "w") as f:
+        f.write("update,train_loss,val_loss,consumed_tokens,tok_per_s,elapsed_sec\n")
+
     if args.wandb and WANDB_AVAILABLE:
         tags = [args.optimizer, args.model, mode_tag]
         if args.use_v_bias:
@@ -357,8 +362,13 @@ def main():
             if args.wandb and WANDB_AVAILABLE:
                 wandb.log({"val/loss": val_loss, "update": update})
 
+            elapsed_sec = time.time() - start
             print(f"[up {update:6d}] loss {avg_loss.item():.4f} | val {val_loss:.4f} "
                   f"| tok/s {tok_per_s:,.0f} | consumed {int(consumed_tokens):,}")
+
+            # Append to CSV log
+            with open(log_csv_path, "a") as f:
+                f.write(f"{update},{avg_loss.item():.6f},{val_loss:.6f},{int(consumed_tokens)},{tok_per_s:.1f},{elapsed_sec:.1f}\n")
 
             if val_loss < best_val_loss:
                 best_val_loss = val_loss
