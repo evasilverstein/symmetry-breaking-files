@@ -1,5 +1,7 @@
 # Code accompanying paper: Symmetry Breaking in Transformers for Efficient and Interpretable Training
 
+***ES todo:  make this more democratic between prelu and gelu since the latter's self-consistent results are also in ***
+
 This package implements the ECD (Energy Conserving Descent) optimizer and an explicit symmetry-breaking mechanism using unlearned stochastic attention biases for transformer training, as described in the accompanying paper.  It also includes code to analyze two additional measures beyond validation loss:  (1)  downstream performance on a suite of simple logic puzzles and (2) an analysis of alignment of token classes' key vectors with the preferred bias directions.  
 
 ## Key Idea
