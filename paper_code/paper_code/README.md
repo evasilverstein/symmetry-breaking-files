@@ -1,10 +1,14 @@
-# ECD Symmetry Breaking Paper Code
+# Code accompanying paper: Symmetry Breaking in Transformers for Efficient and Interpretable Training
 
-This package implements the ECD (Energy Conserving Descent) optimizer with symmetry-breaking mechanisms for transformer training, as described in the accompanying paper.
+This package implements the ECD (Energy Conserving Descent) optimizer and an explicit symmetry-breaking mechanism using unlearned stochastic attention biases for transformer training, as described in the accompanying paper.  It also includes code to analyze two additional measures beyond validation loss:  (1)  downstream performance on a suite of simple logic puzzles and (2) an analysis of alignment of token classes' key vectors with the preferred bias directions.  
 
 ## Key Idea
 
-Transformers have continuous rotational symmetries in attention (Q → RQ, K → RK leaves scores invariant). These symmetries create conserved Noether currents that constrain ECD optimization. Breaking these symmetries via random query biases (bQ) enables ECD to match/exceed Adam performance.
+Transformers have continuous rotational symmetries in attention (Q → RQ, K → RK leaves scores invariant and similarly for the value-output sector), leading to many redundant parameters carried along in the computation. These symmetries create conserved Noether currents and can limit chaotic exploration, impeding Energy Conserving Descent (ECD) optimization. Breaking these symmetries via random query and value biases (bQ) enables ECD to compete with Adam and SOAP.  
+
+Moreover, singling out preferred directions introduces a new learning opportunity for any optimizer:  the model  can learn to align or anti-align the key vectors of particular, semantically interpretable, token classes with the query bias direction, amplifying or suppressing their attention.   
+
+
 
 ## Installation
 
@@ -15,10 +19,10 @@ pip install -r requirements.txt
 ### Included Optimizers
 
 This package includes four optimizers:
-- **ECD** (`ecd_symbreak/optimizer.py`) - Energy Conserving Descent
+- **ECD** (`ecd_symbreak/optimizer.py`) - Energy Conserving Descent q=1 version 
 - **Adam** - PyTorch AdamW
 - **SGDM** - SGD with momentum
-- **SOAP** (`soap.py`) - Shampoo-like optimizer, included in this package
+- **SOAP** (`soap.py`) - Shampoo-like optimizer with preconditioning
 
 ## Quick Start
 
@@ -35,7 +39,7 @@ python scripts/train.py \
     --wandb --name ecd-bQbV-seed42
 ```
 
-### Symmetric Baseline (no bQ)
+### Symmetric Baseline (no bQ or bV)
 
 ```bash
 python scripts/train.py \
