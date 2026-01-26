@@ -1,0 +1,457 @@
+{
+  "checkpoint": "results/adam-124m-gelu-bQbV-seed42/model_final.pt",
+  "model_type": "gelu_ablation",
+  "mlp_type": "GELU",
+  "use_biases": true,
+  "summary": {
+    "pattern_numeric": {
+      "top1_accuracy": 0.25,
+      "top5_accuracy": 0.75,
+      "avg_rank": 4.0,
+      "avg_first_token_loss": 2.26722352206707,
+      "avg_completion_loss": 2.2672255486249924,
+      "n_tasks": 4
+    },
+    "pattern_alpha": {
+      "top1_accuracy": 0.0,
+      "top5_accuracy": 1.0,
+      "avg_rank": 2.5,
+      "avg_first_token_loss": 2.7416187524795532,
+      "avg_completion_loss": 2.741620898246765,
+      "n_tasks": 2
+    },
+    "retrieval_near": {
+      "top1_accuracy": 0.5,
+      "top5_accuracy": 1.0,
+      "avg_rank": 1.5,
+      "avg_first_token_loss": 2.476680040359497,
+      "avg_completion_loss": 2.476680040359497,
+      "n_tasks": 2
+    },
+    "retrieval_far": {
+      "top1_accuracy": 0.5,
+      "top5_accuracy": 0.5,
+      "avg_rank": 1.0,
+      "avg_first_token_loss": 3.285965919494629,
+      "avg_completion_loss": 3.285965919494629,
+      "n_tasks": 2
+    },
+    "simple_inference": {
+      "top1_accuracy": 0.5,
+      "top5_accuracy": 1.0,
+      "avg_rank": 1.5,
+      "avg_first_token_loss": 1.451334834098816,
+      "avg_completion_loss": 1.15823495388031,
+      "n_tasks": 2
+    },
+    "negation": {
+      "avg_ppl_ratio": 0.6720949890300912,
+      "avg_loss_correct": 4.975536028544108,
+      "avg_loss_incorrect": 4.565366744995117,
+      "n_tasks": 3
+    },
+    "syntax": {
+      "avg_ppl_ratio": 32.16322722766916,
+      "avg_loss_correct": 4.260424733161926,
+      "avg_loss_incorrect": 7.268885612487793,
+      "n_tasks": 2
+    },
+    "copy": {
+      "top1_accuracy": 0.5,
+      "top5_accuracy": 0.5,
+      "avg_rank": 5.0,
+      "avg_first_token_loss": 3.391877293586731,
+      "avg_completion_loss": 2.44118869304657,
+      "n_tasks": 2
+    },
+    "_overall": {
+      "avg_logic_puzzle_loss": 2.5545605548790524,
+      "n_completion_tasks": 14
+    }
+  },
+  "detailed": {
+    "pattern_numeric": [
+      {
+        "prompt": "1, 2, 3, 4,",
+        "expected": " 5",
+        "top_predictions": [
+          " 5",
+          " 6",
+          " 4",
+          " and",
+          " 7"
+        ],
+        "top_probs": [
+          0.5306926965713501,
+          0.10407302528619766,
+          0.07696019113063812,
+          0.06068604066967964,
+          0.0436682291328907
+        ],
+        "expected_in_top1": true,
+        "expected_in_top5": true,
+        "expected_rank": 1,
+        "first_token_loss": 0.6335721611976624,
+        "completion_loss": 0.6335750222206116
+      },
+      {
+        "prompt": "2, 4, 6, 8,",
+        "expected": " 10",
+        "top_predictions": [
+          " 9",
+          " and",
+          " 10",
+          " 8",
+          " 12"
+        ],
+        "top_probs": [
+          0.35436195135116577,
+          0.12693245708942413,
+          0.10026121884584427,
+          0.0881691500544548,
+          0.06512423604726791
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": true,
+        "expected_rank": 3,
+        "first_token_loss": 2.299976348876953,
+        "completion_loss": 2.2999773025512695
+      },
+      {
+        "prompt": "1, 1, 2, 3, 5, 8,",
+        "expected": " 13",
+        "top_predictions": [
+          " 9",
+          " 10",
+          " 8",
+          " 12",
+          " 11"
+        ],
+        "top_probs": [
+          0.40687403082847595,
+          0.16885775327682495,
+          0.0694584771990776,
+          0.05316741019487381,
+          0.04660246893763542
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": false,
+        "expected_rank": 10,
+        "first_token_loss": 4.1393938064575195,
+        "completion_loss": 4.139393329620361
+      },
+      {
+        "prompt": "10, 20, 30, 40,",
+        "expected": " 50",
+        "top_predictions": [
+          " 40",
+          " 50",
+          " and",
+          " 45",
+          " 60"
+        ],
+        "top_probs": [
+          0.24790853261947632,
+          0.13588427007198334,
+          0.11792561411857605,
+          0.08612118661403656,
+          0.07120645046234131
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": true,
+        "expected_rank": 2,
+        "first_token_loss": 1.995951771736145,
+        "completion_loss": 1.995956540107727
+      }
+    ],
+    "pattern_alpha": [
+      {
+        "prompt": "A, B, C, D,",
+        "expected": " E",
+        "top_predictions": [
+          " D",
+          " C",
+          " E",
+          " and",
+          " S"
+        ],
+        "top_probs": [
+          0.1638040542602539,
+          0.08230837434530258,
+          0.0713360384106636,
+          0.060392528772354126,
+          0.04899834841489792
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": true,
+        "expected_rank": 3,
+        "first_token_loss": 2.6403536796569824,
+        "completion_loss": 2.64035701751709
+      },
+      {
+        "prompt": "X, Y, Z, A,",
+        "expected": " B",
+        "top_predictions": [
+          " Z",
+          " B",
+          " Y",
+          " H",
+          " C"
+        ],
+        "top_probs": [
+          0.058339424431324005,
+          0.05825741961598396,
+          0.03724032640457153,
+          0.03710133209824562,
+          0.03531862050294876
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": true,
+        "expected_rank": 2,
+        "first_token_loss": 2.842883825302124,
+        "completion_loss": 2.8428847789764404
+      }
+    ],
+    "retrieval_near": [
+      {
+        "prompt": "The color is blue. The shape is round. The color is",
+        "expected": " blue",
+        "top_predictions": [
+          " white",
+          " blue",
+          " black",
+          " yellow",
+          " red"
+        ],
+        "top_probs": [
+          0.10652973502874374,
+          0.07384984195232391,
+          0.07346217334270477,
+          0.050595179200172424,
+          0.0428403802216053
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": true,
+        "expected_rank": 2,
+        "first_token_loss": 2.6057214736938477,
+        "completion_loss": 2.6057214736938477
+      },
+      {
+        "prompt": "John is tall. Mary is short. John is",
+        "expected": " tall",
+        "top_predictions": [
+          " tall",
+          " a",
+          " short",
+          " the",
+          " very"
+        ],
+        "top_probs": [
+          0.0955946296453476,
+          0.059618160128593445,
+          0.043216273188591,
+          0.02773309499025345,
+          0.027565643191337585
+        ],
+        "expected_in_top1": true,
+        "expected_in_top5": true,
+        "expected_rank": 1,
+        "first_token_loss": 2.3476386070251465,
+        "completion_loss": 2.3476386070251465
+      }
+    ],
+    "retrieval_far": [
+      {
+        "prompt": "The capital of France is Paris. The capital of Germany is Berlin. The capital of Spain is Madrid. The capital of Italy is Rome. The capital of France is",
+        "expected": " Paris",
+        "top_predictions": [
+          " Spain",
+          " the",
+          " Rome",
+          " Italy",
+          " France"
+        ],
+        "top_probs": [
+          0.058881163597106934,
+          0.058093149214982986,
+          0.03891347348690033,
+          0.03397733345627785,
+          0.03213052079081535
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": false,
+        "expected_rank": -1,
+        "first_token_loss": 4.157350540161133,
+        "completion_loss": 4.157350540161133
+      },
+      {
+        "prompt": "Alice likes apples. Bob likes bananas. Carol likes cherries. Dave likes dates. Alice likes",
+        "expected": " apples",
+        "top_predictions": [
+          " apples",
+          " apple",
+          " bananas",
+          " tomatoes",
+          " winter"
+        ],
+        "top_probs": [
+          0.08940475434064865,
+          0.06935674697160721,
+          0.04599444195628166,
+          0.016793249174952507,
+          0.014170833863317966
+        ],
+        "expected_in_top1": true,
+        "expected_in_top5": true,
+        "expected_rank": 1,
+        "first_token_loss": 2.414581298828125,
+        "completion_loss": 2.414581298828125
+      }
+    ],
+    "simple_inference": [
+      {
+        "prompt": "If it rains, the ground gets wet. It is raining. The ground",
+        "expected": " gets wet",
+        "top_predictions": [
+          " is",
+          " gets",
+          " has",
+          " heats",
+          " can"
+        ],
+        "top_probs": [
+          0.29248863458633423,
+          0.09416214376688004,
+          0.05483641475439072,
+          0.028035705909132957,
+          0.025946304202079773
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": true,
+        "expected_rank": 2,
+        "first_token_loss": 2.3627371788024902,
+        "completion_loss": 1.7765380144119263
+      },
+      {
+        "prompt": "All birds can fly. A sparrow is a bird. A sparrow can",
+        "expected": " fly",
+        "top_predictions": [
+          " fly",
+          " be",
+          " also",
+          " only",
+          " live"
+        ],
+        "top_probs": [
+          0.5827875733375549,
+          0.1388663351535797,
+          0.02172212116420269,
+          0.020842261612415314,
+          0.018987249583005905
+        ],
+        "expected_in_top1": true,
+        "expected_in_top5": true,
+        "expected_rank": 1,
+        "first_token_loss": 0.5399324893951416,
+        "completion_loss": 0.5399318933486938
+      }
+    ],
+    "negation": [
+      {
+        "prompt1": "The sun is bright.",
+        "prompt2": "The sun is not bright.",
+        "loss1": 4.4818854331970215,
+        "loss2": 4.27548885345459,
+        "ppl1": 88.40119018613471,
+        "ppl2": 71.9152867543519,
+        "ppl_ratio": 0.8135103905606856
+      },
+      {
+        "prompt1": "Water is wet.",
+        "prompt2": "Water is not wet.",
+        "loss1": 5.413505554199219,
+        "loss2": 4.985636234283447,
+        "ppl1": 224.41691603313396,
+        "ppl2": 146.29662435039762,
+        "ppl_ratio": 0.6518965991351459
+      },
+      {
+        "prompt1": "Fire is hot.",
+        "prompt2": "Fire is not hot.",
+        "loss1": 5.031217098236084,
+        "loss2": 4.4349751472473145,
+        "ppl1": 153.11926051355974,
+        "ppl2": 84.35002853184251,
+        "ppl_ratio": 0.5508779773944424
+      }
+    ],
+    "syntax": [
+      {
+        "prompt1": "Hello, world!",
+        "prompt2": "Hello world",
+        "loss1": 5.264292240142822,
+        "loss2": 9.309908866882324,
+        "ppl1": 193.30944369506514,
+        "ppl2": 11046.941340696752,
+        "ppl_ratio": 57.14641317846161
+      },
+      {
+        "prompt1": "\"I am here,\" she said.",
+        "prompt2": "I am here she said",
+        "loss1": 3.2565572261810303,
+        "loss2": 5.227862358093262,
+        "ppl1": 25.960008679601312,
+        "ppl2": 186.39393386761523,
+        "ppl_ratio": 7.1800412768767155
+      }
+    ],
+    "copy": [
+      {
+        "prompt": "Copy: abc -> abc. Copy: xyz ->",
+        "expected": " xyz",
+        "top_predictions": [
+          " ab",
+          " b",
+          " f",
+          " c",
+          " s"
+        ],
+        "top_probs": [
+          0.398725688457489,
+          0.017987903207540512,
+          0.013854692690074444,
+          0.01303876657038927,
+          0.012463707476854324
+        ],
+        "expected_in_top1": false,
+        "expected_in_top5": false,
+        "expected_rank": 9,
+        "first_token_loss": 4.500319004058838,
+        "completion_loss": 2.5989418029785156
+      },
+      {
+        "prompt": "Repeat: hello -> hello. Repeat: world ->",
+        "expected": " world",
+        "top_predictions": [
+          " world",
+          " next",
+          " #",
+          " future",
+          " planet"
+        ],
+        "top_probs": [
+          0.10193341225385666,
+          0.013103920966386795,
+          0.011905675753951073,
+          0.010978947393596172,
+          0.010128659196197987
+        ],
+        "expected_in_top1": true,
+        "expected_in_top5": true,
+        "expected_rank": 1,
+        "first_token_loss": 2.283435583114624,
+        "completion_loss": 2.283435583114624
+      }
+    ]
+  }
+}
