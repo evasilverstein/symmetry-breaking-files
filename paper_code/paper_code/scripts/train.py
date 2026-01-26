@@ -1,6 +1,7 @@
 #!/usr/bin/env python3
 """
-Unified Training Script for ECD Symmetry Breaking Paper
+Unified Training Script for ECD Symmetry Breaking Paper in the case with PreLU MLP activations; the GELU case 
+can be found in the separate gelu_ablation directory
 
 Supports:
 - Symmetric mode (standard attention, no bQ) or Disordered mode (bQ symmetry breaking)
