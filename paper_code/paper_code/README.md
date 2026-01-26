@@ -1,17 +1,12 @@
 # Code accompanying paper: Symmetry Breaking in Transformers for Efficient and Interpretable Training
 
-***ES todos:  
-
-*make this more democratic between prelu and gelu since the latter's self-consistent results are also in.  Just added gelu code and update readme and documentation to indicate code for both options
-***
-
-This package implements the ECD (Energy Conserving Descent) optimizer and an explicit symmetry-breaking mechanism using unlearned stochastic attention biases for transformer training, as described in the accompanying paper.  It also includes code to analyze two additional measures beyond validation loss:  (1)  downstream performance on a suite of simple logic puzzles and (2) an analysis of alignment of token classes' key vectors with the preferred bias directions.  Code is available for all versions of symmetry breaking in via attention biases and both types of MLP blocks (with PreLU taken first in the paper, with GeLU included as an ablation subsection).  
+This package implements the ECD (Energy Conserving Descent) optimizer and an explicit symmetry-breaking mechanism using unlearned stochastic attention biases for transformer training, as described in the accompanying paper.  It also includes code to analyze two additional measures beyond validation loss:  (1)  downstream performance on a suite of simple logic puzzles and (2) an analysis of alignment of token classes' key vectors with the preferred bias directions.  Code is available for all versions of symmetry breaking in via attention biases and both types of MLP blocks (with PreLU taken first in the paper, with GeLU included as an ablation subsection in the paper with corresponding code in the gelu_ablation directory folder here).  
 
 ## Key Idea
 
 Transformers have continuous rotational symmetries in attention (Q → RQ, K → RK leaves scores invariant and similarly for the value-output sector), leading to many redundant parameters carried along in the computation. These symmetries create conserved Noether currents and can limit chaotic exploration, impeding Energy Conserving Descent (ECD) optimization. Breaking these symmetries via random query and value biases (bQ) enables ECD to compete with Adam and SOAP.  
 
-Moreover, singling out preferred directions introduces a new learning opportunity for any optimizer:  the model  can learn to align or anti-align the key vectors of particular, semantically interpretable, token classes with the query bias direction, amplifying or suppressing their attention.   
+Moreover, singling out preferred directions introduces a new learning opportunity for any optimizer:  the model  can learn to align or anti-align the key vectors of particular, semantically interpretable, token classes with the query bias direction, amplifying or suppressing their attention.  The paper explores this effect and its role as a predictor of performance improvements on downstream reasoning.  
 
 
 
@@ -25,9 +20,9 @@ pip install -r requirements.txt
 
 This package includes four optimizers:
 - **ECD** (`ecd_symbreak/optimizer.py`) - Energy Conserving Descent q=1 version 
-- **Adam** - PyTorch AdamW
+- **Adam** - PyTorch AdamW - has intrinsic symmetry breaking via coordinate axes
 - **SGDM** - SGD with momentum
-- **SOAP** (`soap.py`) - Shampoo-like optimizer with preconditioning
+- **SOAP** (`soap.py`) - Shampoo-like optimizer, with preconditioning to restore some symmetry
 
 ## Quick Start
 
@@ -93,28 +88,39 @@ plt.savefig("training_curve.png")
 ## Package Structure
 
 ```
-paper_code/
-├── soap.py               # SOAP optimizer (included)
-├── ecd_symbreak/
-│   ├── config.py          # GPTConfig, model presets
-│   ├── optimizer.py       # ECD_q1_scaled optimizer
-│   ├── utils.py           # Utilities
-│   ├── model/
-│   │   ├── attention.py   # CausalSelfAttention, FullSymmetryBrokenAttention
-│   │   ├── mlp.py         # MLP, RandomPReLU1d, AsymmetricMLPPreLU
-│   │   ├── block.py       # SymmetricBlock, DisorderedBlock
-│   │   └── gpt.py         # GPT model
-│   └── data/
-│       └── loader.py      # FineWebShards data loader
-├── scripts/
-│   ├── train.py           # Unified training script
-│   ├── eval_logic_puzzles.py  # Logic puzzle evaluation
-│   └── analyze_bQ.py      # bQ alignment analysis
-├── examples/
-│   ├── train_symmetric.sh # Symmetric baseline example
-│   ├── train_bQbV.sh      # bQ+bV symmetry breaking example
-│   └── evaluate.sh        # Evaluation examples
-└── requirements.txt
+  paper_code/                                                                                                                                                
+  ├── soap.py               # SOAP optimizer (included)                                                                                                      
+  ├── ecd_symbreak/                                                                                                                                          
+  │   ├── config.py          # GPTConfig, model presets                                                                                                      
+  │   ├── optimizer.py       # ECD_q1_scaled optimizer                                                                                                       
+  │   ├── utils.py           # Utilities                                                                                                                     
+  │   ├── model/                                                                                                                                             
+  │   │   ├── attention.py   # CausalSelfAttention, FullSymmetryBrokenAttention                                                                              
+  │   │   ├── mlp.py         # MLP, RandomPReLU1d, AsymmetricMLPPreLU                                                                                        
+  │   │   ├── block.py       # SymmetricBlock, DisorderedBlock                                                                                               
+  │   │   └── gpt.py         # GPT model                                                                                                                     
+  │   └── data/                                                                                                                                              
+  │       └── loader.py      # FineWebShards data loader                                                                                                     
+  ├── scripts/                                                                                                                                               
+  │   ├── train.py           # Unified training script                                                                                                       
+  │   ├── eval_logic_puzzles.py  # Logic puzzle evaluation                                                                                                   
+  │   └── analyze_bQ.py      # bQ alignment analysis                                                                                                         
+  ├── examples/                                                                                                                                              
+  │   ├── train_symmetric.sh # Symmetric baseline example                                                                                                    
+  │   ├── train_bQbV.sh      # bQ+bV symmetry breaking example                                                                                               
+  │   └── evaluate.sh        # Evaluation examples                                                                                                           
+  ├── gelu_ablation/         # GELU MLP ablation study (NOT main paper results)                                                                              
+  │   ├── README.md                                                                                                                                          
+  │   ├── code/                                                                                                                                              
+  │   │   └── train_gpt_gelu_ablation.py                                                                                                                     
+  │   ├── scripts/                                                                                                                                           
+  │   │   ├── eval_logic_puzzles_gelu.py                                                                                                                     
+  │   │   └── analyze_bQ_gelu.py                                                                                                                             
+  │   └── analysis_results/                                                                                                                                  
+  │       ├── GELU_ABLATION_SUMMARY.md                                                                                                                       
+  │       ├── logic_puzzles/*.json                                                                                                                           
+  │       └── bQ_alignment/*.png, *.txt                                                                                                                      
+  └── requirements.txt                     
 ```
 
 ## Key Hyperparameter defaults, can be varied
@@ -128,7 +134,7 @@ paper_code/
 
 ### Symmetry Breaking Biases
 - `mean_Q`: 0.5 (mean of bQ distribution)
-- `mean_V`: 0.5 (mean of bV distribution, for V-O sector)
+- `mean_V`: 0.5 (mean of bV distribution, for V-O sector), 0.0 also tested
 - `std_V`: 0.05 (std of bV distribution)
 
 ### Model
@@ -141,31 +147,14 @@ paper_code/
 ### Symmetric Mode (`--symmetric`)
 - Standard causal self-attention (no bQ)
 - Optional bV for V-O symmetry breaking
-- PReLU or GeLU MLP:  PreLU was used in the main paper examples.
+- PReLU or GeLU MLP:  PreLU was used in the main paper examples, GELU can be found in a special section and gelu_ablation code folder.
 
 ### Disordered Mode (default)
 - bQ breaks O(d_k) rotational symmetry in Q-K sector
 - bK intentionally omitted (cancels in softmax)
 - Optional bV breaks O(d_v) symmetry in V-O sector
-- PReLU MLP (learnable per-feature slopes)
+- PReLU MLP (learnable per-feature slopes); GELU version can be found in gelu_ablation folder
 
-## Theoretical Background
 
-### Why Symmetry Breaking Matters for ECD
-
-1. **Noether's Theorem**: Symmetries in the Hamiltonian create conserved quantities
-2. **Conservation Constraints**: Angular momenta are preserved during ECD dynamics
-3. **Optimization Problems**: Conservation restricts parameter space exploration
-4. **Solution**: Random bQ breaks symmetry, eliminating constraints
-
-### The bQ Mechanism
-
-```python
-q = WQ @ x + bQ  # Add random bias to queries
-```
-
-- bQ ~ N(mean_Q, std_Q) resampled each batch
-- Non-learned (if learned, symmetry persists)
-- Model learns to use ⟨bQ⟩ direction semantically
 
 
