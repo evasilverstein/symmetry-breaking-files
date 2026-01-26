@@ -10,7 +10,8 @@ Evaluates trained models on logic puzzles including:
 - Syntax awareness
 - Copy/repeat tasks
 
-Supports models trained with Asymmetric PReLU MLP (RandomPReLU1d).
+Supports models trained with Asymmetric PReLU MLP (RandomPReLU1d).  The GELU version can be found in a separate
+folder GELU_ablation
 """
 
 import os
