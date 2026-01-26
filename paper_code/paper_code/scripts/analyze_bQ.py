@@ -4,7 +4,7 @@ bQ Vector Analysis Script
 
 Analyzes b_Q alignment patterns in trained models:
 1. Estimates mean b_Q vectors over multiple batches
-2. Analyzes token alignment (which tokens align with b_Q direction)
+2. Analyzes token alignment (which tokens' key vectors align with b_Q direction)
 3. Analyzes positional alignment (positional patterns in b_Q direction)
 
 Generates:
