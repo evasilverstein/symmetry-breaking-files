@@ -1,4 +1,4 @@
-# Semantic Category Enrichment Analysis
+# Semantic Category Enrichment Analysis:  Multiple bQ directions per head
 
 **Date**: 2026-03-23
 **Models analyzed**: adam-multi4bQ-gelu-1B, adam-multi4bQ-gelu-500M, adam-multi4bQ-moe-1B, adam-multi4bQ-moe-500M, adam-single-bQbV-s42, ecd-multi4bQ-gelu-1B, ecd-multi4bQ-gelu-500M, ecd-multi4bQ-moe-1B, ecd-multi4bQ-moe-500M, ecd-single-bQonly-s42
